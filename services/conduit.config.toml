@@ -1,0 +1,82 @@
+# ── Conduit Configuration ─────────────────────────────────
+# This file configures the gateway. Sensitive values (API keys,
+# passwords, secrets) belong in .env — never here.
+
+[app]
+name = "Conduit"
+port = 4000
+mode = "auto"
+# version is resolved at runtime: CONDUIT_VERSION env → git tag → package.json
+
+# ── Cascade Profiles ──────────────────────────────────────
+# Cascade is only active when 2+ providers are configured.
+# Profiles define the fallback chain and trigger conditions.
+
+[cascade.profiles.quality]
+chain               = ["claude-opus-4-7", "gpt-4o", "gemini-1.5-pro", "groq/llama3-70b", "ollama/llama3"]
+token_threshold     = 0.82
+cost_cap_usd        = 1.00
+compress_on_handoff = true
+compressor          = "groq/llama3-8b-8192"
+reverse_cascade     = true
+retry_on_error      = 2
+
+[cascade.profiles.balanced]
+chain               = ["gpt-4o-mini", "gemini-1.5-flash", "groq/llama3-70b", "ollama/llama3"]
+token_threshold     = 0.85
+cost_cap_usd        = 0.25
+compress_on_handoff = true
+compressor          = "groq/llama3-8b-8192"
+reverse_cascade     = false
+retry_on_error      = 1
+
+[cascade.profiles.cheap]
+chain               = ["groq/llama3-70b", "groq/mixtral-8x7b", "ollama/llama3"]
+token_threshold     = 0.90
+cost_cap_usd        = 0.00
+compress_on_handoff = true
+compressor          = "groq/llama3-8b-8192"
+reverse_cascade     = false
+retry_on_error      = 1
+
+[cascade.profiles.offline]
+chain               = ["ollama/llama3", "ollama/mistral", "ollama/phi3"]
+token_threshold     = 0.90
+cost_cap_usd        = 0.00
+compress_on_handoff = false
+reverse_cascade     = false
+retry_on_error      = 0
+
+# ── Data ──────────────────────────────────────────────────
+[data]
+uploads_dir     = "./data/uploads"
+sqlite_fallback = false
+
+# ── Feature Flags ─────────────────────────────────────────
+[features]
+cascade       = true
+parallel      = false
+log_explorer  = false
+split_view    = false
+voice         = false
+
+# ── Sites ─────────────────────────────────────────────────
+# Maps hostnames to UI variants. Unmatched hosts fall back to "default".
+# [sites."your-domain.com"]
+# variant = "chat"
+# label   = "My Conduit"
+
+[sites]
+
+# ── Status Page ───────────────────────────────────────────
+# Public health-only status page — no keys, no request details.
+[status_page]
+mirrors  = []
+services = ["gateway", "engine", "postgres", "redis"]
+
+# ── License ───────────────────────────────────────────────
+# Leave manifest_url and public_key blank to disable version locking.
+[license]
+manifest_url         = ""
+check_interval_hours = 6
+public_key           = ""
