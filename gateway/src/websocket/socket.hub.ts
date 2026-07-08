@@ -2,7 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { runCascade, cascadeIsUsable } from "@cascade/cascade.engine";
 import { getChatAdapterForModel } from "@providers/chat/chat.registry";
 import { loadConfig } from "@config/config.loader";
-import { getLicenseState } from "@license/license.state";
+import { getLicenseState, type LicenseState } from "@license/license.state";
 import type {
    ClientMessage,
    ClientChatMessage,
@@ -12,14 +12,37 @@ import type {
 import type { WireEvent } from "@streaming/stream.types";
 import type { ChatMessage } from "@providers/provider.types";
 
+// ── License state cache (same pattern as middleware.version.ts) ───────────────
+
+interface CachedState {
+   state: LicenseState;
+   expiresAt: number;
+}
+
+let _licenseCache: CachedState | null = null;
+const LICENSE_CACHE_TTL_MS = 5_000;
+
+async function getCachedLicenseState(): Promise<LicenseState> {
+   const now = Date.now();
+   if (_licenseCache && now < _licenseCache.expiresAt) {
+      return _licenseCache.state;
+   }
+   const state = await getLicenseState();
+   _licenseCache = { state, expiresAt: now + LICENSE_CACHE_TTL_MS };
+   return state;
+}
+
 // ── Per-connection state ───────────────────────────────────────────────────────
 
 /**
  * Tracks all in-flight streams for a single WebSocket connection.
- * Key: client-supplied requestId
- * Value: AbortController that signals cancellation to the generator
+ * Key: client-supplied requestId  Value: AbortController for cancellation.
  */
 type ActiveStreams = Map<string, AbortController>;
+
+// Attach per-connection stream map to the websocket object via a WeakMap
+// so TypeScript doesn't complain about arbitrary properties on ServerWebSocket.
+const connectionStreams = new WeakMap<object, ActiveStreams>();
 
 // ── Send helpers ───────────────────────────────────────────────────────────────
 
@@ -43,31 +66,31 @@ function sendStreamEvent(
 // ── Connection handler ────────────────────────────────────────────────────────
 
 /**
- * Called by server.ts when Bun upgrades an HTTP request to a WebSocket.
- * Returns the event handlers for this connection's lifecycle.
+ * Returns Bun WebSocket event handlers for the gateway's /ws endpoint.
  *
  * Design:
- * - One `ActiveStreams` map per connection, keyed by client requestId
- * - Each stream runs in its own async loop — no shared generator state
+ * - One ActiveStreams map per connection, keyed by client requestId.
+ * - Each stream runs in its own async loop; no shared generator state.
  * - Cancel signals the AbortController; the generator loop checks it after
- *   each event and breaks cleanly without throwing to the caller
- * - The connection close handler cancels all in-flight streams atomically
+ *   each event and breaks cleanly without throwing to the caller.
+ * - Connection close cancels all in-flight streams atomically.
+ * - License state is cached for 5s so it's not a Postgres call per message.
  */
 export function createSocketHandlers() {
    return {
       open(ws: ServerWebSocket<unknown>) {
-         (ws as any).__streams = new Map() as ActiveStreams;
+         connectionStreams.set(ws, new Map());
          console.log("[ws] Client connected");
       },
 
       async message(ws: ServerWebSocket<unknown>, raw: string | Buffer) {
-         const streams = (ws as any).__streams as ActiveStreams;
+         const streams = connectionStreams.get(ws);
+         if (!streams) return; // shouldn't happen — open() always sets this
 
          let msg: ClientMessage;
          try {
-            msg = JSON.parse(
-               typeof raw === "string" ? raw : raw.toString()
-            ) as ClientMessage;
+            const text = typeof raw === "string" ? raw : raw.toString("utf8");
+            msg = JSON.parse(text) as ClientMessage;
          } catch {
             send(ws, {
                type: "error",
@@ -93,22 +116,26 @@ export function createSocketHandlers() {
             }
 
             case "chat":
-               handleChatStream(ws, streams, msg);
+               // Fire-and-forget — the async generator loop manages its own lifecycle
+               void handleChatStream(ws, streams, msg);
                break;
 
             default:
                send(ws, {
                   type: "error",
                   code: "unknown_message_type",
-                  error: `Unknown message type: "${(msg as any).type}"`
+                  error: `Unknown message type: "${(msg as { type: string }).type}"`
                });
          }
       },
 
       close(ws: ServerWebSocket<unknown>) {
-         const streams = (ws as any).__streams as ActiveStreams;
-         for (const ctrl of streams.values()) ctrl.abort();
-         streams.clear();
+         const streams = connectionStreams.get(ws);
+         if (streams) {
+            for (const ctrl of streams.values()) ctrl.abort();
+            streams.clear();
+            connectionStreams.delete(ws);
+         }
          console.log("[ws] Client disconnected");
       }
    };
@@ -123,7 +150,6 @@ async function handleChatStream(
 ): Promise<void> {
    const { requestId } = req;
 
-   // Guard: don't allow duplicate requestIds on the same connection
    if (streams.has(requestId)) {
       send(ws, {
          type: "error",
@@ -133,8 +159,8 @@ async function handleChatStream(
       return;
    }
 
-   // Check version lock before starting the stream
-   const licenseState = await getLicenseState();
+   // Version lock check — uses 5s in-memory cache, not a live Postgres query
+   const licenseState = await getCachedLicenseState();
    if (licenseState.status === "update_required") {
       sendStreamEvent(ws, requestId, {
          type: "error",
@@ -148,22 +174,25 @@ async function handleChatStream(
    const ctrl = new AbortController();
    streams.set(requestId, ctrl);
 
-   const messages: ChatMessage[] = req.messages;
    const config = loadConfig();
+   const messages: ChatMessage[] = req.messages;
 
    const shouldCascade =
-      req.cascadeEnabled && config.features.cascade && cascadeIsUsable();
+      req.cascadeEnabled === true &&
+      config.features.cascade &&
+      cascadeIsUsable();
 
    let events: AsyncGenerator<WireEvent>;
 
    if (shouldCascade) {
-      const profile = config.cascade.profiles[req.cascadeProfile ?? "balanced"];
+      const profileName = req.cascadeProfile ?? "balanced";
+      const profile = config.cascade.profiles[profileName];
 
       if (!profile) {
          sendStreamEvent(ws, requestId, {
             type: "error",
             code: "unknown",
-            error: `Unknown cascade profile: "${req.cascadeProfile}"`,
+            error: `Unknown cascade profile: "${profileName}"`,
             retryable: false
          });
          streams.delete(requestId);
@@ -179,27 +208,48 @@ async function handleChatStream(
    } else {
       const adapter = getChatAdapterForModel(req.model);
 
-      if (!adapter || !adapter.isConfigured()) {
+      if (!adapter) {
          sendStreamEvent(ws, requestId, {
             type: "error",
             code: "unknown",
-            error: adapter
-               ? `Provider for "${req.model}" has no API key configured`
-               : `Unknown model: "${req.model}"`,
+            error: `Unknown model: "${req.model}"`,
             retryable: false
          });
          streams.delete(requestId);
          return;
       }
 
-      events = (adapter as any).stream(messages, req.model, {
+      if (!adapter.isConfigured()) {
+         sendStreamEvent(ws, requestId, {
+            type: "error",
+            code: "unknown",
+            error: `Provider for model "${req.model}" has no API key configured`,
+            retryable: false
+         });
+         streams.delete(requestId);
+         return;
+      }
+
+      events = (
+         adapter as unknown as {
+            stream(
+               messages: ChatMessage[],
+               modelId: string,
+               options?: {
+                  maxTokens?: number;
+                  temperature?: number;
+                  systemPrompt?: string;
+               }
+            ): AsyncGenerator<WireEvent>;
+         }
+      ).stream(messages, req.model, {
          maxTokens: req.maxTokens,
          temperature: req.temperature,
          systemPrompt: req.systemPrompt
-      }) as AsyncGenerator<WireEvent>;
+      });
    }
 
-   // ── Forward events ─────────────────────────────────────────────────────────
+   // ── Forward events until done, error, or cancelled ────────────────────────
    try {
       for await (const event of events) {
          if (ctrl.signal.aborted) break;

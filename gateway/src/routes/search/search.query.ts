@@ -2,10 +2,13 @@ import { z } from "zod";
 import type { Context } from "hono";
 import {
    getSearchAdapter,
-   allSearchProviders
+   allSearchAdapters,
+   configuredSearchAdapters
 } from "@providers/search/search.registry";
+import type { SearchProviderAdapter } from "@providers/search/search.types";
+
 import { checkRateLimit } from "@db/redis/redis.ratelimit";
-import { incrementUsage } from "@db/redis/redis.usage";
+import { recordSuccess, recordError } from "@db/redis/redis.usage";
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -27,7 +30,7 @@ type SearchQueryInput = z.infer<typeof SearchQuerySchema>;
 /**
  * Executes a web search using the configured search provider (SerpAPI or
  * Brave Search). If multiple providers are configured, the `provider` field
- * selects which to use; otherwise the first available is chosen.
+ * selects which to use; otherwise the first configured provider is chosen.
  *
  * Rate limited to 30 requests/minute per IP.
  */
@@ -70,15 +73,14 @@ export async function handleSearch(c: Context): Promise<Response> {
    }
 
    // ── Resolve provider ───────────────────────────────────────────────────────
-   const adapter = body.provider
+   // allSearchAdapters() returns BaseProvider[]; we cast to SearchProviderAdapter
+   // after confirming category — every search adapter implements search().
+   const resolvedBase = body.provider
       ? getSearchAdapter(body.provider)
-      : (allSearchProviders().find(p => p.isConfigured()) ?? null);
+      : (configuredSearchAdapters()[0] ?? null);
 
-   if (!adapter) {
-      const configured = allSearchProviders()
-         .filter(p => p.isConfigured())
-         .map(p => p.id);
-
+   if (!resolvedBase) {
+      const configured = configuredSearchAdapters().map(p => p.id);
       return c.json(
          {
             error: body.provider
@@ -91,15 +93,18 @@ export async function handleSearch(c: Context): Promise<Response> {
       );
    }
 
-   if (!adapter.isConfigured()) {
+   if (!resolvedBase.isConfigured()) {
       return c.json(
          {
-            error: `Search provider "${adapter.id}" has no API key configured.`,
+            error: `Search provider "${resolvedBase.id}" has no API key configured.`,
             code: "unconfigured_provider"
          },
          400
       );
    }
+
+   // Safe cast — all search adapters satisfy SearchProviderAdapter
+   const adapter = resolvedBase as unknown as SearchProviderAdapter;
 
    // ── Search ─────────────────────────────────────────────────────────────────
    const started = Date.now();
@@ -108,16 +113,13 @@ export async function handleSearch(c: Context): Promise<Response> {
          count: body.count,
          country: body.country,
          language: body.language,
-         freshness: body.freshness,
+         freshness: body.freshness as "day" | "week" | "month" | undefined,
          safeSearch: body.safeSearch
       });
 
       const durationMs = Date.now() - started;
 
-      incrementUsage(adapter.id, {
-         requests: 1,
-         latencyMs: durationMs
-      }).catch(() => {});
+      recordSuccess(adapter.id, durationMs).catch(() => {});
 
       return c.json({
          query: body.query,
@@ -129,7 +131,7 @@ export async function handleSearch(c: Context): Promise<Response> {
    } catch (err) {
       const message = err instanceof Error ? err.message : "Search failed";
 
-      incrementUsage(adapter.id, { requests: 1, errors: 1 }).catch(() => {});
+      recordError(adapter.id, "error", message).catch(() => {});
 
       return c.json({ error: message, code: "search_failed" }, 502);
    }
@@ -141,7 +143,7 @@ export async function handleSearch(c: Context): Promise<Response> {
  * Lists all known search providers and whether each is configured.
  */
 export async function handleSearchProviders(c: Context): Promise<Response> {
-   const providers = allSearchProviders().map(p => ({
+   const providers = allSearchAdapters().map(p => ({
       id: p.id,
       name: p.name,
       configured: p.isConfigured()

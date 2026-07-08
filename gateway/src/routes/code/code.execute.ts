@@ -2,10 +2,12 @@ import { z } from "zod";
 import type { Context } from "hono";
 import {
    executeCode,
-   isCodeExecutionConfigured,
-   SUPPORTED_RUNTIMES
+   isCodeExecutionConfigured
 } from "@providers/code/code.registry";
-import { isSupportedRuntime } from "@providers/code/code.types";
+import {
+   isSupportedRuntime,
+   SUPPORTED_RUNTIMES
+} from "@providers/code/code.types";
 import { checkRateLimit } from "@db/redis/redis.ratelimit";
 
 // ── Validation ────────────────────────────────────────────────────────────────
@@ -20,14 +22,15 @@ const ExecuteSchema = z.object({
 // ── POST /api/code/execute ────────────────────────────────────────────────────
 
 /**
- * Executes code in an isolated E2B sandbox.
+ * Executes code in an isolated E2B CodeInterpreter sandbox.
  *
  * Rate limited to 10 executions/minute per IP — sandbox creation is
  * resource-intensive and billed by E2B per second of compute.
  *
- * The execution is synchronous from the client's perspective (waits for
- * completion), but uses an isolated throwaway sandbox with a hard timeout.
- * No state is shared between calls.
+ * Returns stdout, stderr, exit code, rich cell outputs (images, HTML),
+ * and wall-clock duration. The call is synchronous from the client's
+ * perspective (waits for completion) but uses an isolated throwaway
+ * sandbox with a hard timeout so runaway code can't block indefinitely.
  */
 export async function handleCodeExecute(c: Context): Promise<Response> {
    // ── Rate limit ─────────────────────────────────────────────────────────────
@@ -48,7 +51,7 @@ export async function handleCodeExecute(c: Context): Promise<Response> {
       );
    }
 
-   // ── Check E2B configured ───────────────────────────────────────────────────
+   // ── Check configured ───────────────────────────────────────────────────────
    if (!isCodeExecutionConfigured()) {
       return c.json(
          {

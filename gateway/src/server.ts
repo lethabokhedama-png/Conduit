@@ -35,18 +35,17 @@ import { codeRoute } from "./routes/code/code.route";
  * starting the Bun HTTP server or triggering startup side-effects.
  *
  * Middleware order (outermost → innermost):
- *   1. requestId   — stamps every request and response before anything else
- *   2. cors        — sets CORS headers (needs to run before any early returns)
- *   3. site        — resolves Host → SiteProfile, stored in context
- *   4. version     — blocks version-locked routes when update is required
+ *   1. requestId  — stamps every request/response before anything else
+ *   2. cors       — sets CORS headers before any early returns
+ *   3. site       — resolves Host → SiteProfile into context
+ *   4. version    — blocks version-locked routes when update is required
  *
- * Route groups are mounted under /api/* with explicit path prefixes.
- * Version-locked routes are those under /api/chat, /api/media, /api/search,
- * /api/code, /api/discovery, /api/models, /api/providers — the version
- * middleware intercepts these before they reach their handlers.
+ * Public routes (never blocked by version middleware):
+ *   /api/health, /api/status, /api/keys/*, /api/sites/*, /api/license/*
  *
- * Public (never blocked):
- *   /api/health, /api/status, /api/keys, /api/sites/*, /api/license/*
+ * Version-locked routes (return 426 when update_required):
+ *   /api/chat/*, /api/media/*, /api/search/*, /api/code/*,
+ *   /api/discovery/*, /api/models, /api/providers/*
  */
 export function createApp(): Hono {
    const app = new Hono();
@@ -59,22 +58,19 @@ export function createApp(): Hono {
 
    // ── Public routes ──────────────────────────────────────────────────────────
 
-   // Liveness + public status
+   // GET /api/health  GET /api/status
    app.route("/api", statusRoute);
 
-   // Key management — always available so users can fix a broken config
+   // Key management — open so users can always fix a broken config
    app.route("/api/keys", keysRoute);
 
-   // Site config — needed by interfaces before they can render anything
+   // Site config — interfaces need this before they can render
    app.route("/api/sites", sitesRoute);
 
-   // License — needed by UI to show update banners
+   // License — needed to show update banners regardless of version lock
    app.route("/api/license", licenseRoute);
 
    // ── Version-locked routes ──────────────────────────────────────────────────
-   // versionMiddleware already intercepts these paths and returns 426 when
-   // the installed version is below the minimum. The routes below only execute
-   // when the version check passes.
 
    // Provider discovery (tester interface)
    app.route("/api/discovery", discoveryRoute);
@@ -88,10 +84,10 @@ export function createApp(): Hono {
    // Web search
    app.route("/api/search", searchRoute);
 
-   // Code execution (E2B sandboxes)
+   // Code execution
    app.route("/api/code", codeRoute);
 
-   // Provider health + model list — version-locked, mounted directly
+   // Provider health + model catalogue — version-locked, mounted directly
    app.get("/api/providers/health", handleProvidersHealth);
    app.get("/api/models", handleModels);
 
@@ -105,8 +101,8 @@ export function createApp(): Hono {
 // ── WebSocket handler export ───────────────────────────────────────────────────
 
 /**
- * Bun WebSocket handlers. Exported so index.ts can pass them to Bun.serve().
- * Kept here (co-located with routing) rather than in index.ts so the
- * WebSocket upgrade logic stays close to the HTTP route definitions.
+ * Bun WebSocket handlers. Exported alongside createApp() so index.ts can
+ * pass them directly to Bun.serve() without importing the websocket module
+ * separately.
  */
 export const socketHandlers = createSocketHandlers();

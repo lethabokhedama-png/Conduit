@@ -28,11 +28,11 @@
       "@middleware/*": ["./src/middleware/*"],
       "@cascade/*": ["./src/cascade/*"],
       "@discovery/*": ["./src/discovery/*"],
-       "@sites/*":      ["./src/sites/*"],
-"@license/*":    ["./src/license/*"],
-"@status/*":     ["./src/status/*"],
       "@streaming/*": ["./src/streaming/*"],
-      "@websocket/*": ["./src/websocket/*"]
+      "@websocket/*": ["./src/websocket/*"],
+      "@sites/*":     ["./src/sites/*"],
+      "@license/*":   ["./src/license/*"],
+      "@status/*":    ["./src/status/*"]
     }
   },
   "include": ["src", "scripts"]

@@ -1,11 +1,13 @@
 import { z } from "zod";
 import type { Context } from "hono";
 import {
-   getImageAdapterForModel,
+   getImageAdapter,
+   allImageAdapters,
    allImageModels
 } from "@providers/image/media.registry";
+import type { ImageProviderAdapter } from "@providers/image/media.types";
 import { checkRateLimit } from "@db/redis/redis.ratelimit";
-import { incrementUsage } from "@db/redis/redis.usage";
+import { recordSuccess, recordError } from "@db/redis/redis.usage";
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -19,22 +21,39 @@ const GenerateImageSchema = z.object({
    count: z.number().int().min(1).max(4).optional().default(1),
    quality: z.enum(["standard", "hd"]).optional().default("standard"),
    format: z.enum(["url", "base64"]).optional().default("url"),
-   negativePrompt: z.string().max(2000).optional()
+   negativePrompt: z.string().max(2000).optional(),
+   style: z.string().optional()
 });
 
 type GenerateImageInput = z.infer<typeof GenerateImageSchema>;
+
+// ── Model → provider resolution ───────────────────────────────────────────────
+
+/**
+ * Resolves a model ID to its image provider adapter.
+ * Image models use the registry's `allImageModels()` to build a model→provider
+ * map at call time (tiny — only 4 models total across 2 providers).
+ */
+function getImageAdapterForModel(modelId: string): ImageProviderAdapter | null {
+   const models = allImageModels();
+   const model = models.find(m => m.id === modelId);
+   if (!model) return null;
+
+   const adapter = getImageAdapter(model.provider);
+   if (!adapter) return null;
+
+   // All image adapters implement ImageProviderAdapter — safe cast
+   return adapter as unknown as ImageProviderAdapter;
+}
 
 // ── POST /api/media/generate ──────────────────────────────────────────────────
 
 /**
  * Generates images using any configured image provider.
+ * Returns an array of image results — each has either `url` or `base64`
+ * depending on the requested format, plus optional `revisedPrompt` and `seed`.
  *
- * Returns an array of image results — each result has either a `url` or
- * `base64` field depending on the requested format, plus optional metadata
- * like `revisedPrompt` (DALL-E 3) and `seed` (Stability AI).
- *
- * Rate limited to 20 requests/minute per IP — image generation is expensive
- * in both cost and compute.
+ * Rate limited to 20 requests/minute per IP — image generation is expensive.
  */
 export async function handleGenerateImage(c: Context): Promise<Response> {
    // ── Rate limit ─────────────────────────────────────────────────────────────
@@ -77,12 +96,11 @@ export async function handleGenerateImage(c: Context): Promise<Response> {
    // ── Resolve provider ───────────────────────────────────────────────────────
    const adapter = getImageAdapterForModel(body.model);
    if (!adapter) {
-      const available = allImageModels().map(m => m.id);
       return c.json(
          {
             error: `Unknown image model: "${body.model}"`,
             code: "unknown_model",
-            availableModels: available
+            availableModels: allImageModels().map(m => m.id)
          },
          400
       );
@@ -91,7 +109,7 @@ export async function handleGenerateImage(c: Context): Promise<Response> {
    if (!adapter.isConfigured()) {
       return c.json(
          {
-            error: `Image provider for "${body.model}" has no API key configured. Add one via Settings.`,
+            error: `Image provider for model "${body.model}" has no API key configured. Add one via Settings.`,
             code: "unconfigured_provider"
          },
          400
@@ -106,16 +124,13 @@ export async function handleGenerateImage(c: Context): Promise<Response> {
          count: body.count,
          quality: body.quality,
          format: body.format,
-         negativePrompt: body.negativePrompt
+         negativePrompt: body.negativePrompt,
+         style: body.style
       });
 
       const durationMs = Date.now() - started;
 
-      // Fire-and-forget usage tracking
-      incrementUsage(adapter.id, {
-         requests: 1,
-         latencyMs: durationMs
-      }).catch(() => {});
+      recordSuccess(adapter.id, durationMs).catch(() => {});
 
       return c.json({
          model: body.model,
@@ -128,8 +143,7 @@ export async function handleGenerateImage(c: Context): Promise<Response> {
       const message =
          err instanceof Error ? err.message : "Image generation failed";
 
-      // Track error
-      incrementUsage(adapter.id, { requests: 1, errors: 1 }).catch(() => {});
+      recordError(adapter.id, "error", message).catch(() => {});
 
       return c.json({ error: message, code: "generation_failed" }, 502);
    }
@@ -138,7 +152,7 @@ export async function handleGenerateImage(c: Context): Promise<Response> {
 // ── GET /api/media/models ─────────────────────────────────────────────────────
 
 /**
- * Lists all available image models with their capabilities (sizes, formats, cost).
+ * Lists all available image models with their capabilities.
  */
 export async function handleImageModels(c: Context): Promise<Response> {
    return c.json({ models: allImageModels() });

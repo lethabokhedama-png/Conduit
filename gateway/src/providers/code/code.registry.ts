@@ -2,47 +2,64 @@ import { getKey } from "@db/stores/key.store";
 import type {
    CodeRuntime,
    ExecutionOptions,
-   ExecutionResult
+   ExecutionResult,
+   CellOutput
 } from "./code.types";
-import { RUNTIME_TEMPLATES, isSupportedRuntime } from "./code.types";
+import { isSupportedRuntime, SUPPORTED_RUNTIMES } from "./code.types";
 
-// ── E2B client (lazy import) ──────────────────────────────────────────────────
+// ── E2B SDK (optional dependency) ─────────────────────────────────────────────
 
 /**
- * E2B SDK is loaded lazily so the gateway starts without it when no E2B key
- * is configured. This avoids a hard startup failure for users who don't use
- * code execution.
+ * E2B is an optional dependency — not in package.json by default.
+ * We lazy-import it so the gateway boots normally when no E2B key is
+ * configured. The import is attempted once and the result cached.
+ *
+ * Install when needed: npm install @e2b/code-interpreter
+ *
+ * The E2B v2 SDK uses the CodeInterpreter class with a Jupyter kernel,
+ * which natively supports Python, JavaScript, and shell execution.
+ * API: https://e2b.dev/docs/code-interpreter/quickstart
  */
-async function getE2BClient() {
+type E2BModule = typeof import("@e2b/code-interpreter");
+let _e2b: E2BModule | null = null;
+let _e2bLoadError: string | null = null;
+
+async function loadE2B(): Promise<E2BModule> {
+   if (_e2b) return _e2b;
+   if (_e2bLoadError) throw new Error(_e2bLoadError);
+
    try {
-      return await import("@e2b/code-interpreter");
+      _e2b = (await import("@e2b/code-interpreter")) as E2BModule;
+      return _e2b;
    } catch {
-      throw new Error(
-         "E2B SDK not installed. Run: npm install @e2b/code-interpreter"
-      );
+      _e2bLoadError =
+         "E2B SDK not installed. Run: npm install @e2b/code-interpreter";
+      throw new Error(_e2bLoadError);
    }
 }
 
-// ── Registry ──────────────────────────────────────────────────────────────────
+// ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Returns true when an E2B API key is configured.
- */
 export function isCodeExecutionConfigured(): boolean {
    return !!getKey("e2b");
 }
 
 /**
- * Executes `code` in an isolated E2B sandbox for the given runtime.
+ * Executes code in an isolated E2B CodeInterpreter sandbox.
  *
- * Each call creates a fresh sandbox, runs the code, and tears the sandbox
- * down immediately after — no state persists between calls. This is
- * intentional: Conduit's code execution is for single-shot evaluation,
- * not persistent REPL sessions.
+ * Uses the E2B v2 CodeInterpreter API which runs a stateful Jupyter kernel
+ * per sandbox. Each call creates a fresh sandbox, executes the code cell,
+ * collects all outputs (stdout, stderr, rich cell outputs like images),
+ * and immediately closes the sandbox.
  *
- * The sandbox is killed if it exceeds `timeoutMs` (default 15s, max 30s).
+ * The kernel is chosen by runtime:
+ *   python     → default Jupyter Python 3 kernel
+ *   javascript → Deno kernel (bundled in E2B sandbox template)
+ *   bash       → executed via process.startAndWait, not the Jupyter kernel
  *
- * @throws when E2B is not configured or the SDK is not installed.
+ * Throws on configuration errors. Runtime errors (non-zero exit, syntax
+ * errors) are returned in the result rather than thrown, so callers can
+ * display them to the user.
  */
 export async function executeCode(
    code: string,
@@ -51,71 +68,103 @@ export async function executeCode(
 ): Promise<ExecutionResult> {
    if (!isCodeExecutionConfigured()) {
       throw new Error(
-         "Code execution requires an E2B API key. Add one via Settings → Providers → e2b."
+         "Code execution requires an E2B API key. Add one via Settings → Providers."
       );
    }
 
-   const { Sandbox } = await getE2BClient();
+   const { CodeInterpreter } = await loadE2B();
    const timeoutMs = Math.min(options.timeoutMs ?? 15_000, 30_000);
-   const template = RUNTIME_TEMPLATES[runtime];
+   const apiKey = getKey("e2b") as string;
 
    const started = Date.now();
-   const sandbox = await Sandbox.create(template, {
-      apiKey: getKey("e2b") as string,
+
+   const sandbox = await CodeInterpreter.create({
+      apiKey,
+      // E2B timeout is in seconds
       timeoutMs
    });
 
    try {
-      if (options.env) {
-         for (const [k, v] of Object.entries(options.env)) {
-            await sandbox.process.startAndWait(
-               `export ${k}="${v.replace(/"/g, '\\"')}"`
-            );
+      // Inject environment variables before execution
+      if (options.env && Object.keys(options.env).length > 0) {
+         const exports = Object.entries(options.env)
+            .map(([k, v]) => `export ${k}=${JSON.stringify(v)}`)
+            .join("\n");
+         await sandbox.process.startAndWait(
+            `bash -c ${JSON.stringify(exports)}`
+         );
+      }
+
+      let stdout = "";
+      let stderr = "";
+      let exitCode = 0;
+      const outputs: CellOutput[] = [];
+
+      if (runtime === "bash") {
+         // Bash goes through the process API, not the Jupyter kernel
+         const proc = await sandbox.process.startAndWait(
+            `bash -c ${JSON.stringify(code)}`,
+            { timeoutMs }
+         );
+         stdout = proc.stdout ?? "";
+         stderr = proc.stderr ?? "";
+         exitCode = proc.exitCode ?? 0;
+      } else {
+         // Python and JavaScript use the Jupyter kernel via runCode
+         // The kernel is selected when the sandbox template is chosen;
+         // the default E2B template supports both python3 and deno kernels.
+         const kernelLang = runtime === "javascript" ? "javascript" : "python";
+
+         const execution = await sandbox.runCode(code, {
+            language: kernelLang,
+            timeoutMs,
+            onStdout: (line: string) => {
+               stdout += line + "\n";
+            },
+            onStderr: (line: string) => {
+               stderr += line + "\n";
+            }
+         });
+
+         exitCode = execution.error ? 1 : 0;
+
+         // Collect rich cell outputs (images, HTML, text/plain)
+         for (const result of execution.results ?? []) {
+            if (result.png) {
+               outputs.push({
+                  type: "image",
+                  base64: result.png,
+                  mimeType: "image/png"
+               });
+            } else if (result.jpeg) {
+               outputs.push({
+                  type: "image",
+                  base64: result.jpeg,
+                  mimeType: "image/jpeg"
+               });
+            } else if (result.text) {
+               outputs.push({ type: "text", text: result.text });
+            }
+         }
+
+         if (execution.error) {
+            stderr =
+               execution.error.traceback ?? execution.error.value ?? stderr;
+            outputs.push({ type: "error", text: stderr });
          }
       }
 
-      // Determine the run command for each runtime
-      const runCmd = buildRunCommand(runtime, code);
-      const proc = await sandbox.process.startAndWait(runCmd, {
-         timeoutMs
-      });
-
       return {
-         stdout: proc.stdout ?? "",
-         stderr: proc.stderr ?? "",
-         exitCode: proc.exitCode ?? 0,
+         stdout: stdout.trimEnd(),
+         stderr: stderr.trimEnd(),
+         exitCode,
+         outputs,
          durationMs: Date.now() - started,
          runtime
       };
    } finally {
-      await sandbox.kill().catch(() => {});
+      await sandbox.close().catch(() => {});
    }
 }
-
-// ── Command builder ───────────────────────────────────────────────────────────
-
-function buildRunCommand(runtime: CodeRuntime, code: string): string {
-   // Write code to a temp file then execute — avoids shell escaping headaches
-   const escaped = code.replace(/'/g, `'\\''`);
-
-   switch (runtime) {
-      case "python":
-         return `python3 -c '${escaped}'`;
-
-      case "typescript":
-         return [
-            `echo '${escaped}' > /tmp/_conduit_exec.ts`,
-            `npx ts-node --skip-project /tmp/_conduit_exec.ts`
-         ].join(" && ");
-
-      case "javascript":
-         return `node -e '${escaped}'`;
-
-      case "bash":
-         return `bash -c '${escaped}'`;
-   }
-}
-
-// ── Runtime list ──────────────────────────────────────────────────────────────
 
 export { isSupportedRuntime, SUPPORTED_RUNTIMES };
