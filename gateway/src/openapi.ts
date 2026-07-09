@@ -26,10 +26,6 @@ const ErrorSchema = z.object({
   requestId: z.string().optional()
 });
 
-const RateLimitErrorSchema = ErrorSchema.extend({
-  retryAfterMs: z.number()
-});
-
 // ── OpenAPI document ──────────────────────────────────────────────────────────
 
 /**
@@ -951,9 +947,6 @@ export function createDocsApp(): Hono {
     "/",
     swaggerUI({
       url: "/openapi.json",
-      // Show the spec version in the title bar
-      title: "Conduit Gateway API",
-      // Expand first level of operations on load — easier to scan
       defaultModelsExpandDepth: 1,
       defaultModelExpandDepth: 2
     })

@@ -1,8 +1,4 @@
-import {
-    getHealthScore,
-    computeHealthScore,
-    getUsageStat
-} from "@db/redis/redis.usage";
+import { getHealthScore } from "@db/redis/redis.usage";
 import { getChatAdapterForModel } from "@providers/chat/chat.registry";
 
 export interface RankedModel {

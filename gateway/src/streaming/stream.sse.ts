@@ -1,4 +1,3 @@
-import type { Context } from "hono";
 import type { WireEvent } from "./stream.types";
 
 // ── SSE response helpers ───────────────────────────────────────────────────────
@@ -11,18 +10,18 @@ import type { WireEvent } from "./stream.types";
  * are caught and replaced with an error event so the stream never stalls.
  */
 export function encodeEvent(event: WireEvent): string {
-   let json: string;
-   try {
-      json = JSON.stringify(event);
-   } catch {
-      json = JSON.stringify({
-         type: "error",
-         code: "unknown",
-         error: "Failed to serialize event",
-         retryable: false
-      });
-   }
-   return `data: ${json}\n\n`;
+    let json: string;
+    try {
+        json = JSON.stringify(event);
+    } catch {
+        json = JSON.stringify({
+            type: "error",
+            code: "unknown",
+            error: "Failed to serialize event",
+            retryable: false
+        });
+    }
+    return `data: ${json}\n\n`;
 }
 
 /**
@@ -30,8 +29,8 @@ export function encodeEvent(event: WireEvent): string {
  * Format: `event: <name>\ndata: <json>\n\n`
  */
 export function encodeNamedEvent(name: string, data: unknown): string {
-   const json = JSON.stringify(data);
-   return `event: ${name}\ndata: ${json}\n\n`;
+    const json = JSON.stringify(data);
+    return `event: ${name}\ndata: ${json}\n\n`;
 }
 
 /**
@@ -44,11 +43,11 @@ export const SSE_PING = ": ping\n\n";
 // ── Streaming response factory ─────────────────────────────────────────────────
 
 export interface StreamSSEOptions {
-   /**
-    * Interval in ms between keep-alive pings.
-    * Defaults to 15 000ms. Set to 0 to disable.
-    */
-   pingIntervalMs?: number;
+    /**
+     * Interval in ms between keep-alive pings.
+     * Defaults to 15 000ms. Set to 0 to disable.
+     */
+    pingIntervalMs?: number;
 }
 
 /**
@@ -69,79 +68,79 @@ export interface StreamSSEOptions {
  * @param options   Optional ping interval override
  */
 export function createSSEResponse(
-   events: AsyncGenerator<WireEvent>,
-   options: StreamSSEOptions = {}
+    events: AsyncGenerator<WireEvent>,
+    options: StreamSSEOptions = {}
 ): Response {
-   const pingIntervalMs = options.pingIntervalMs ?? 15_000;
+    const pingIntervalMs = options.pingIntervalMs ?? 15_000;
 
-   const stream = new ReadableStream({
-      async start(controller) {
-         const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        async start(controller) {
+            const encoder = new TextEncoder();
 
-         const enqueue = (chunk: string): void => {
-            controller.enqueue(encoder.encode(chunk));
-         };
-
-         let pingTimer: ReturnType<typeof setInterval> | null = null;
-
-         if (pingIntervalMs > 0) {
-            pingTimer = setInterval(() => {
-               try {
-                  enqueue(SSE_PING);
-               } catch {
-                  // Controller may already be closed — ignore
-               }
-            }, pingIntervalMs);
-         }
-
-         try {
-            for await (const event of events) {
-               enqueue(encodeEvent(event));
-
-               // End the stream after final events — the client will close its
-               // EventSource on receiving these, but closing here prevents resource
-               // leaks if the client doesn't close immediately.
-               if (
-                  event.type === "done" ||
-                  event.type === "error" ||
-                  event.type === "cascade_exhausted" ||
-                  event.type === "cascade_complete"
-               ) {
-                  break;
-               }
-            }
-         } catch (err) {
-            // Generator threw unexpectedly — emit a typed error before closing
-            const errorEvent: WireEvent = {
-               type: "error",
-               code: "unknown",
-               error:
-                  err instanceof Error
-                     ? err.message
-                     : "Stream generator failed",
-               retryable: false
+            const enqueue = (chunk: string): void => {
+                controller.enqueue(encoder.encode(chunk));
             };
-            enqueue(encodeEvent(errorEvent));
-         } finally {
-            if (pingTimer !== null) clearInterval(pingTimer);
-            try {
-               controller.close();
-            } catch {
-               // Already closed — ignore
-            }
-         }
-      }
-   });
 
-   return new Response(stream, {
-      status: 200,
-      headers: {
-         "Content-Type": "text/event-stream; charset=utf-8",
-         "Cache-Control": "no-cache, no-transform",
-         "Connection": "keep-alive",
-         "X-Accel-Buffering": "no" // disable Nginx proxy buffering
-      }
-   });
+            let pingTimer: ReturnType<typeof setInterval> | null = null;
+
+            if (pingIntervalMs > 0) {
+                pingTimer = setInterval(() => {
+                    try {
+                        enqueue(SSE_PING);
+                    } catch {
+                        // Controller may already be closed — ignore
+                    }
+                }, pingIntervalMs);
+            }
+
+            try {
+                for await (const event of events) {
+                    enqueue(encodeEvent(event));
+
+                    // End the stream after final events — the client will close its
+                    // EventSource on receiving these, but closing here prevents resource
+                    // leaks if the client doesn't close immediately.
+                    if (
+                        event.type === "done" ||
+                        event.type === "error" ||
+                        event.type === "cascade_exhausted" ||
+                        event.type === "cascade_complete"
+                    ) {
+                        break;
+                    }
+                }
+            } catch (err) {
+                // Generator threw unexpectedly — emit a typed error before closing
+                const errorEvent: WireEvent = {
+                    type: "error",
+                    code: "unknown",
+                    error:
+                        err instanceof Error
+                            ? err.message
+                            : "Stream generator failed",
+                    retryable: false
+                };
+                enqueue(encodeEvent(errorEvent));
+            } finally {
+                if (pingTimer !== null) clearInterval(pingTimer);
+                try {
+                    controller.close();
+                } catch {
+                    // Already closed — ignore
+                }
+            }
+        }
+    });
+
+    return new Response(stream, {
+        status: 200,
+        headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no" // disable Nginx proxy buffering
+        }
+    });
 }
 
 /**
@@ -150,12 +149,12 @@ export function createSSEResponse(
  * (e.g. validation error, no providers configured).
  */
 export function sseError(
-   code: string,
-   message: string,
-   retryable = false
+    code: string,
+    message: string,
+    retryable = false
 ): Response {
-   async function* single(): AsyncGenerator<WireEvent> {
-      yield { type: "error", code, error: message, retryable } as WireEvent;
-   }
-   return createSSEResponse(single());
+    async function* single(): AsyncGenerator<WireEvent> {
+        yield { type: "error", code, error: message, retryable } as WireEvent;
+    }
+    return createSSEResponse(single());
 }
