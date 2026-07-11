@@ -460,7 +460,7 @@ function DockerSnippet() {
         {
             prompt: "$",
             cmd: "git clone",
-            arg: "github.com/conduit-ai/conduit",
+            arg: "github.com/picklem0b/conduit",
             color: C.sub
         },
         { prompt: "$", cmd: "cp", arg: ".env.example .env", color: C.sub },
