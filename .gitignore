@@ -1,4 +1,5 @@
 node_modules/
+plans.md
 dist/
 .env
 data/

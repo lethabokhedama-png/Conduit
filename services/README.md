@@ -7,7 +7,7 @@ Bring any API key — chat, image generation, search, code execution — and get
 ## Deploy in 60 seconds
 
 ```bash
-git clone https://github.com/lethabokhedama-png/Conduit.git
+git clone https://github.com/picklem0b/Conduit.git
 cd Conduit
 cp .env.example .env
 docker compose up --build

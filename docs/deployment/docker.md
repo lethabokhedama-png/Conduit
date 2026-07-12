@@ -8,7 +8,7 @@
 ## Deploy
 
 ```bash
-git clone https://github.com/lethabokhedama-png/Conduit.git
+git clone https://github.com/picklem0b/Conduit.git
 cd Conduit
 cp .env.example .env
 ```

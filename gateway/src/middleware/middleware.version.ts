@@ -102,7 +102,7 @@ export const versionMiddleware: MiddlewareHandler = async (c, next) => {
       code: "version_locked",
       installedVersion: state.installedVersion,
       minimumVersion: state.minimumVersion,
-      updateUrl: "https://github.com/lethabokhedama-png/Conduit/releases"
+      updateUrl: "https://github.com/picklem0b/Conduit/releases"
    };
 
    return c.json(body, 426);
