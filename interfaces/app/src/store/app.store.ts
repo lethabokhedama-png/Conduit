@@ -54,7 +54,7 @@ export const useAppStore = create<AppState>(set => ({
 
     terminalOpen: true,
     terminalTab: "terminal",
-    terminalLines: [{ id: "0", text: "Conduit v0.3.2 ready", type: "dim" }],
+    terminalLines: [{ id: "0", text: "Conduit v0.3.12 ready", type: "dim" }],
     setTerminalOpen: terminalOpen => set({ terminalOpen }),
     setTerminalTab: terminalTab => set({ terminalTab }),
     pushTerminalLine: line =>
@@ -72,5 +72,5 @@ export const useAppStore = create<AppState>(set => ({
     sidebarOpen: true,
     setSidebarOpen: sidebarOpen => set({ sidebarOpen }),
 
-    version: "v0.3.2"
+    version: "v0.3.12"
 }));

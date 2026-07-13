@@ -96,7 +96,7 @@ function Nav({ onGetStarted }: { onGetStarted: () => void }) {
                         borderRadius: 4
                     }}
                 >
-                    v0.3.4
+                    v0.3.12
                 </span>
             </div>
             <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
@@ -1146,7 +1146,8 @@ function Footer() {
                 <span
                     style={{ fontSize: 11, color: C.dim, fontFamily: C.mono }}
                 >
-                    Conduit v0.3.4 · MIT License · Built with Bun + Hono + React
+                    Conduit v0.3.12 · MIT License · Built with Bun + Hono +
+                    React
                 </span>
                 <span style={{ fontSize: 11, color: C.dimmer }}>
                     0 telemetry · 0 ads · 0 data leaves your machine

@@ -444,7 +444,7 @@ function AboutSection() {
                 About
             </h2>
             {[
-                ["Version", "v0.3.2"],
+                ["Version", "v0.3.12"],
                 ["License", "MIT"],
                 ["Stack", "Bun · Hono · React"],
                 ["Gateway", "localhost:4000"],
@@ -482,7 +482,7 @@ function AboutSection() {
                 </div>
             ))}
             <p style={{ fontSize: 11, color: C.dimmer, lineHeight: 1.6 }}>
-                Conduit v0.3.2 · MIT · Built with Bun + Hono + React
+                Conduit v0.3.12 · MIT · Built with Bun + Hono + React
             </p>
         </div>
     );

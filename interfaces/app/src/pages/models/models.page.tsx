@@ -699,7 +699,7 @@ export function ModelsPage() {
                                     fontFamily: C.mono
                                 }}
                             >
-                                [about] v0.3.2 · MIT · 5 telemetry · 0 ads · 0
+                                [about] v0.3.12 · MIT · 5 telemetry · 0 ads · 0
                                 data leaves your machine
                             </div>
                         </div>
