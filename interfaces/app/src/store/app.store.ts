@@ -14,7 +14,10 @@ export type WorkspaceId =
     | "projects"
     | "runtime"
     | "settings"
-    | "changelog";
+    | "changelog"
+    | "media-generate"
+    | "media-canvas"
+    | "media-code";
 
 interface TerminalLine {
     id: string;
@@ -69,5 +72,5 @@ export const useAppStore = create<AppState>(set => ({
     sidebarOpen: true,
     setSidebarOpen: sidebarOpen => set({ sidebarOpen }),
 
-    version: "v0.3.2"
+    version: "v0.3.x"
 }));

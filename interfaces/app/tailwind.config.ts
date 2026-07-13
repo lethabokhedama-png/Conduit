@@ -1,0 +1,51 @@
+import type { Config } from "tailwindcss";
+
+export default {
+    content: ["./index.html", "./src/**/*.{ts,tsx}"],
+    theme: {
+        extend: {
+            colors: {
+                bg: "#080808",
+                surface: "#0f0f0f",
+                surface2: "#141414",
+                surface3: "#181818",
+                border: "#1e1e1e",
+                border2: "#2a2a2a",
+                border3: "#333333",
+                conduit: {
+                    text: "#e5e5e5",
+                    sub: "#999999",
+                    dim: "#555555",
+                    green: "#22c55e",
+                    red: "#ef4444",
+                    amber: "#f59e0b",
+                    blue: "#3b82f6",
+                    purple: "#a855f7"
+                }
+            },
+            fontFamily: {
+                sans: [
+                    "system-ui",
+                    "-apple-system",
+                    "BlinkMacSystemFont",
+                    "Segoe UI",
+                    "sans-serif"
+                ],
+                mono: [
+                    "ui-monospace",
+                    "Cascadia Code",
+                    "SF Mono",
+                    "Menlo",
+                    "monospace"
+                ]
+            },
+            borderRadius: {
+                DEFAULT: "6px",
+                lg: "8px",
+                xl: "10px",
+                "2xl": "12px"
+            }
+        }
+    },
+    plugins: []
+} satisfies Config;

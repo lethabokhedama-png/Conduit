@@ -1,10 +1,10 @@
 {
     "name": "@conduit/app",
-    "version": "0.3.2",
+    "version": "0.3.4",
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "vite --host",
+        "dev": "vite",
         "build": "tsc && vite build",
         "preview": "vite preview",
         "typecheck": "tsc --noEmit"

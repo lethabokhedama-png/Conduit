@@ -1,111 +1,136 @@
-import { useAppStore } from "@/store/app.store";
+import { useState, useEffect } from "react";
 import { ShellLayout } from "@/layout/shell.layout";
+import { OnboardingPage } from "@/pages/onboarding/onboarding.page";
+import { LandingPage } from "@/pages/landing/landing.page";
 import { ChatPage } from "@/pages/chat/chat.page";
+import { ComparePage } from "@/pages/compare/compare.page";
+import { BenchmarkPage } from "@/pages/benchmark/benchmark.page";
+import { ExperimentsPage } from "@/pages/experiments/experiments.page";
+import { RagPage } from "@/pages/rag/rag.page";
+import { OsintPage } from "@/pages/osint/osint.page";
+import { PromptsPage } from "@/pages/prompts/prompts.page";
+import { ModelsPage } from "@/pages/models/models.page";
+import { ProbePage } from "@/pages/tester/probe/probe.page";
+import { StatusPage } from "@/pages/tester/status/status.page";
+import { LibraryPage } from "@/pages/library/library.page";
+import { ProjectsPage } from "@/pages/projects/projects.page";
+import { RuntimePage } from "@/pages/runtime/runtime.page";
 import { SettingsPage } from "@/pages/settings/settings.page";
+import { ChangelogPage } from "@/pages/changelog/changelog.page";
+import { GeneratePage } from "@/pages/media/generate/generate.page";
+import { CanvasPage } from "@/pages/media/canvas/canvas.page";
+import { CodePage } from "@/pages/media/code/code.page";
 import { NotFoundPage } from "@/pages/errors/404.page";
+import { ServerErrorPage } from "@/pages/errors/500.page";
+import { ToastContainer } from "@/components/ui/toast.ui";
+import { ErrorBoundary } from "@/layout/boundary.error";
+import { useAppStore, type WorkspaceId } from "@/store/app.store";
+import {
+    useOnboardingStore,
+    needsOnboarding
+} from "@/pages/onboarding/onboarding.store";
+import "@/styles/global.css";
+import "@/styles/themes.css";
+import "@/styles/typography.css";
 
-// Stub pages — filled in subsequent commits
-function StubPage({ label }: { label: string }) {
-    const { C } = {
-        C: {
-            text: "#e5e5e5",
-            dim: "#555",
-            surface: "#0f0f0f",
-            border: "#1e1e1e",
-            mono: "monospace"
-        }
-    };
-    return (
-        <div
-            style={{
-                display: "flex",
-                flexDirection: "column",
-                alignItems: "center",
-                justifyContent: "center",
-                height: "100%",
-                gap: 12,
-                color: C.dim,
-                fontFamily: "system-ui"
-            }}
-        >
-            <div
-                style={{
-                    fontSize: 11,
-                    fontFamily: C.mono,
-                    color: C.dim,
-                    background: C.surface,
-                    border: `1px solid ${C.border}`,
-                    padding: "4px 10px",
-                    borderRadius: 4
-                }}
-            >
-                {label} workspace
-            </div>
-            <p style={{ fontSize: 12, color: C.dim }}>Coming in next commit.</p>
-        </div>
-    );
-}
+// ── App state machine ─────────────────────────────────────────────────────────
+// landing → onboarding → app
+type AppStage = "landing" | "onboarding" | "app";
 
 function WorkspaceRouter() {
     const { workspace } = useAppStore();
-    switch (workspace) {
-        case "chat":
-            return <ChatPage />;
-        case "settings":
-            return <SettingsPage />;
-        case "benchmark":
-            return <StubPage label="benchmark" />;
-        case "compare":
-            return <StubPage label="compare" />;
-        case "experiments":
-            return <StubPage label="experiments" />;
-        case "rag":
-            return <StubPage label="rag" />;
-        case "osint":
-            return <StubPage label="osint" />;
-        case "prompts":
-            return <StubPage label="prompts" />;
-        case "models":
-            return <StubPage label="models" />;
-        case "tester":
-            return <StubPage label="tester" />;
-        case "library":
-            return <StubPage label="library" />;
-        case "projects":
-            return <StubPage label="projects" />;
-        case "runtime":
-            return <StubPage label="runtime" />;
-        case "changelog":
-            return <StubPage label="changelog" />;
-        default:
-            return <NotFoundPage />;
-    }
+    const pages: Record<WorkspaceId, React.ReactNode> = {
+        chat: <ChatPage />,
+        compare: <ComparePage />,
+        benchmark: <BenchmarkPage />,
+        experiments: <ExperimentsPage />,
+        rag: <RagPage />,
+        osint: <OsintPage />,
+        prompts: <PromptsPage />,
+        models: <ModelsPage />,
+        tester: <StatusPage />,
+        library: <LibraryPage />,
+        projects: <ProjectsPage />,
+        runtime: <RuntimePage />,
+        settings: <SettingsPage />,
+        changelog: <ChangelogPage />,
+        "media-generate": <GeneratePage />,
+        "media-canvas": <CanvasPage />,
+        "media-code": <CodePage />
+    };
+    return <>{pages[workspace] ?? <NotFoundPage />}</>;
 }
 
-export default function App() {
+function AppShell() {
     return (
-        <>
-            <style>{`
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body, #root { height: 100%; width: 100%; overflow: hidden; }
-        body {
-          font-family: system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-          background: #080808; color: #e5e5e5;
-          -webkit-font-smoothing: antialiased;
-        }
-        ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-        input, textarea, select, button { font-family: inherit; }
-        a { color: inherit; text-decoration: none; }
-        @media (prefers-reduced-motion: reduce) {
-          *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
-        }
-      `}</style>
-
+        <ErrorBoundary>
             <ShellLayout>
                 <WorkspaceRouter />
             </ShellLayout>
+        </ErrorBoundary>
+    );
+}
+
+// ── Root ──────────────────────────────────────────────────────────────────────
+export default function App() {
+    const [stage, setStage] = useState<AppStage>(() => {
+        // If already onboarded, skip straight to app
+        if (!needsOnboarding()) return "app";
+        return "landing";
+    });
+
+    const { done: onboardingDone, skip } = useOnboardingStore();
+
+    // When onboarding finishes → go to app
+    useEffect(() => {
+        if (onboardingDone && stage === "onboarding") {
+            setStage("app");
+        }
+    }, [onboardingDone, stage]);
+
+    // Hash-based trigger from landing page "Get started"
+    useEffect(() => {
+        const handler = () => {
+            if (window.location.hash === "#onboard") {
+                setStage("onboarding");
+                window.location.hash = "";
+            }
+        };
+        window.addEventListener("hashchange", handler);
+        return () => window.removeEventListener("hashchange", handler);
+    }, []);
+
+    // "Sign in to Conduit Cloud" / skip from landing
+    const handleSkipToApp = () => {
+        skip();
+        setStage("app");
+    };
+
+    return (
+        <>
+            {stage === "landing" && <LandingPage />}
+
+            {stage === "onboarding" && (
+                <>
+                    {/* Show a blurred app shell behind the onboarding modal */}
+                    <div
+                        style={{
+                            filter: "blur(3px)",
+                            pointerEvents: "none",
+                            position: "fixed",
+                            inset: 0
+                        }}
+                    >
+                        <AppShell />
+                    </div>
+                    <OnboardingPage />
+                </>
+            )}
+
+            {stage === "app" && <AppShell />}
+
+            {/* Global toasts */}
+            <ToastContainer />
         </>
     );
 }

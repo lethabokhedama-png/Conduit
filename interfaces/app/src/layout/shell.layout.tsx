@@ -15,7 +15,10 @@ import {
     Cpu,
     FileText,
     Zap,
-    History
+    History,
+    Image,
+    Layers,
+    Code2
 } from "lucide-react";
 import { C, SHELL } from "@/lib/tokens";
 import { useAppStore, type WorkspaceId } from "@/store/app.store";
@@ -53,7 +56,10 @@ const WORKSPACE_ITEMS: { label: string; icon: ReactNode; ws: WorkspaceId }[] = [
 const TOOL_ITEMS: { label: string; icon: ReactNode; ws: WorkspaceId }[] = [
     { label: "OSINT", icon: <Globe size={14} />, ws: "osint" },
     { label: "API Tester", icon: <Zap size={14} />, ws: "tester" },
-    { label: "Tool Caller", icon: <Cpu size={14} />, ws: "benchmark" }
+    { label: "Tool Caller", icon: <Cpu size={14} />, ws: "benchmark" },
+    { label: "Generate", icon: <Image size={14} />, ws: "media-generate" },
+    { label: "Canvas", icon: <Layers size={14} />, ws: "media-canvas" },
+    { label: "Code", icon: <Code2 size={14} />, ws: "media-code" }
 ];
 
 // ── Header toolbar icons (top-right of main area) ────────────────────────────
@@ -583,7 +589,10 @@ function workspaceLabel(ws: WorkspaceId): string {
         projects: "Projects",
         runtime: "Runtime",
         settings: "Settings",
-        changelog: "Changelog"
+        changelog: "Changelog",
+        "media-generate": "Media · Generate",
+        "media-canvas": "Media · Canvas",
+        "media-code": "Media · Code"
     };
     return map[ws] ?? ws;
 }

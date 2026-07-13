@@ -1,0 +1,14 @@
+code,
+pre,
+.mono {
+    font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, monospace;
+}
+
+h1,
+h2,
+h3,
+h4 {
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    color: #e5e5e5;
+}
